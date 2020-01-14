@@ -66,8 +66,24 @@ footer {
 #canvas {
     padding: 20px;
     align-content: center;
+    position: absolute;
+    z-index: 0;
+}
+
+#pose-canvas {
+    padding: 20px;
+    position: relative;
+    left: 0;
+    top: 0;
+    z-index: 1;
+    background-color: transparent;
 }
 
 #modelStats {
     text-align: center;
+}
+
+#prompt {
+    font: "IBM Plex Sans";
+    font-size: 26px;
 }

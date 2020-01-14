@@ -5,20 +5,12 @@ const pointRadius = 4;
 const timerLength = 10;
 
 var initialized = false;
-var coordinates = new Array();
 var canvas;
-var currentPrediction;
-var targetPose;
-var currentConfidence = 0;
 var yogaSession;
-var currentState = 'waiting';
 var poseCanvas;
-var targetCanvas;
-var textCanvas;
+var textPrompt;
 
-let poseNames = ['y','lunge','warrior']
-
-let overlaySize = {
+const overlaySize = {
     width: 640,
     height: 480
 }
@@ -27,19 +19,14 @@ setup();
 
 // Run setup. Attaches a function to a button
 async function setup() {
-    console.info('setup');
-
     let button = document.getElementById("webcamButton");
     button.addEventListener("click", start)
-
 }
 
 /**
  *  Loads the face detector model and creates canvas to display webcam and model results.
  */
 function start() {
-    console.info('button clicked to start');
-
     if (initialized) {
         console.log('initialized');
         return;
@@ -49,17 +36,11 @@ function start() {
     canvas = document.getElementById("canvas");
     canvas.classList.toggle("hide");
 
-    // this canvas is where we draw lines and points
     poseCanvas = document.getElementById("pose-canvas");
     poseCanvas.classList.toggle("hide");
 
-    // this canvas is where we show the target pose
-    targetCanvas = document.getElementById("target-canvas");
-    targetCanvas.classList.toggle("hide");
-
-    // this canvas is where we draw the timer and instructions
-    textCanvas = document.getElementById("text-canvas");
-    textCanvas.classList.toggle("hide");
+    textPrompt = document.getElementById("prompt");
+    textPrompt.classList.toggle("hide")
 
     let button = document.getElementById("webcamButton");
     button.classList.add("hide");
@@ -68,56 +49,28 @@ function start() {
         alpha: false
     });
 
-
-    // set the target pose to be the first in the array
-    targetPose = poseNames[0];
-
     // this lets us do state transitions
-    yogaSession = new yogaWrapper(textCanvas);
-    yogaSession.setTarget(targetPose);
-    yogaSession.generatePrompt();
+    yogaSession = new YogaWrapper();
 
-    var mycamvas = new camvas(window.ctx, processFrame, logTimer, yogaSession);
-
-    // this function gets predictions and draws the lines over the video as well as changes the prediction text
-    var predicter = new predicting(canvas, sendImage, poseCanvas, textCanvas, yogaSession);
-    
+    var mycamvas = new camvas(window.ctx, processFrame);
     initialized = true;
 }
 
-/**
- * Used by the camvas object to draw the timer or prompt every time the video frame updates (rather than every time there's a prediction)
- * @param {yogaWrapper} wrapper   Object that we pull information from.
- */
-function logTimer(wrapper) {
-    if (wrapper.enableTiming) {
-        // log the timer
-        var value =  Date.now() - wrapper.startTime;
-        wrapper.ctx.clearRect(0, 0, wrapper.textCanvas.width, wrapper.textCanvas.height);
-        wrapper.ctx.fillText(Number((value / 1000).toFixed(1)) + ' seconds', wrapper.textCanvas.width / 2, wrapper.textCanvas.height / 2);
-    } else {
-        // if we can't log the timer, display a prompt
-        wrapper.ctx.clearRect(0, 0, wrapper.textCanvas.width, wrapper.textCanvas.height);
-        // pick a random prompt
-        wrapper.ctx.fillText(wrapper.prompt, wrapper.textCanvas.width / 2, wrapper.textCanvas.height / 2);
-    }
-}
 
 /**
  * Contains the state transition logic and timing information.
- * @param {Canvas} textCanvas   Canvas that we send prompt and timer information to.
  */
-class yogaWrapper {
+class YogaWrapper {
 
-    constructor(textCanvas) {
-        this.textCanvas = textCanvas;
-        this.targetValue = null;
+    constructor() {
         this.startTime = 0;
-        this.enableTiming = false;
-        this.ctx = textCanvas.getContext('2d');
-        this.ctx.font = "26px IBM Plex Sans";
-        this.ctx.textAlign = "center";
         this.prompt = null;
+        this.poseNames = ['y','lunge','warrior']
+        this.currentPose = this.poseNames[0];
+        this.posing = false;
+        this.confidenceThreshold = 90;
+
+        this.generatePrompt()
     }
 
     generatePrompt() {
@@ -129,106 +82,81 @@ class yogaWrapper {
             }
             return a
           }
-        this.prompt = motivationalLines[rand].format(this.targetValue);
+        this.prompt = motivationalLines[rand].format(this.currentPose);
     }
 
     clickTimer() {
         this.startTime = Date.now();
-        this.enableTiming = !this.enableTiming;
     }
 
-    setTarget(s) {
-        this.targetValue = s;
+    checkPose(posePrediction, poseConfidence) {
+        return posePrediction === this.currentPose && poseConfidence > this.confidenceThreshold
     }
 
-    getStartTime() {
-        return this.startTime;
-    }
-    getTarget() {
-        return this.targetValue;
+    changePose() {
+        this.currentPose = this.poseNames[(this.poseNames.indexOf(this.currentPose)+1) % this.poseNames.length];
+        this.clickTimer();
+        this.generatePrompt();
+        this.posing = false;
     }
 }
 
 
 /**
- * Runs the predictions and state transition logic.
- * @param {Canvas} canvas           Canvas on which to send the video.
- * @param {Function} sendImage      Function that sends the image to the server.
- * @param {Canvas} poseCanvas       Canvas on which to draw the poses.
- * @param {Canvas} textCanvas       Canvas on which to draw the text.
- * @param {yogaWrapper} yogaSession Object that contains all of the state information.
+ * Runs every frame update. Grab the image from the webcam, run face detection, then crop
+ * images for faces and send those images to the model.
+ * @param {Object} video    Video object.
+ * @param {Number} dt       Time elapsed between frames.
  */
-function predicting(canvas, sendImage, poseCanvas, textCanvas, yogaSession) {
-    var self = this;
-    this.send = sendImage;
-    this.canvas = canvas;
-    this.poseCanvas = poseCanvas;
-    this.textCanavs = textCanvas;
-    this.yogaSession = yogaSession;
+async function processFrame(video, dt) {
+    // render the video frame to the canvas element and extract RGBA pixel data
+    window.ctx.drawImage(video, 0, 0);
+    let predictionResults = await sendImage(canvas);
+    // let predictionResults = await poseEstimator.predict(canvas);
 
-    // send image to server, wait until it returns a prediction
-    var self = this;
-    var last = Date.now();
-    var loop = async function () {
-        var dt = Date.now() - last;
-        let arr = await self.send(canvas);
-        if (typeof(arr) !== 'undefined') {
-            var pose = arr[0];
-            currentPrediction = arr[1];
-            currentConfidence = arr[2];
+    textPrompt.innerHTML = yogaSession.prompt;
 
-            // draw all poses
-            poseCanvas.getContext('2d').clearRect(0, 0, overlaySize.width, overlaySize.height)
-            var i;
-            for (i = 0; i < pose['predictions'].length; i++) {
-                drawBodyParts(poseCanvas.getContext('2d'), pose['predictions'][i]['body_parts'], cocoParts, cocoColors)
-                drawPoseLines(poseCanvas.getContext('2d'), pose['predictions'][i]['pose_lines'], cocoColors)
-            }
+    if (predictionResults) {
+        console.log(predictionResults)
+        let pose = predictionResults[0];
+        let currentPrediction = predictionResults[1];
+        let currentConfidence = predictionResults[2];
 
-            // logic for state transitions
-            if (currentState === 'waiting') {
-                if (currentPrediction === yogaSession.targetValue && currentConfidence > 90) {
-                    console.log('\tthe posing has begun!');
-                    yogaSession.clickTimer();
-                    currentState = 'posing';
-                } else {
-                    console.log('waiting for: ' + targetPose);
+        // draw all poses
+        poseCanvas.getContext('2d').clearRect(0, 0, overlaySize.width, overlaySize.height)
+        pose['predictions'].forEach((pose_prediction) => {
+            drawBodyParts(poseCanvas.getContext('2d'), pose_prediction['body_parts'], cocoParts, cocoColors)
+            drawPoseLines(poseCanvas.getContext('2d'), pose_prediction['pose_lines'], cocoColors)
+        })
+    
+        // logic for state transitions
+        if (yogaSession.checkPose(currentPrediction, currentConfidence)) {
+            if (yogaSession.posing) {
+                let poseTime = Date.now() - yogaSession.startTime
+                textPrompt.innerHTML.concat(`: ${poseTime * 1000} seconds`)
+                if (poseTime > timerLength * 1000) {
+                    yogaSession.changePose()
+                    // display congratulatory message
+                    // setTimeout(function() {
+                    //     this.textCanvas.getContext('2d').clearRect(0, 0, wrapper.textCanvas.width, wrapper.textCanvas.height);
+                    //     this.textCanvas.getContext('2d').fillText('Great job :)', wrapper.textCanvas.width / 2, wrapper.textCanvas.height / 2);
+                    // }, 2000);                
                 }
-            }
-            else {
-                var poseTime = Date.now() - yogaSession.getStartTime();
-                if (currentPrediction === yogaSession.getTarget() && currentConfidence > 90) {
-                    if (poseTime > timerLength * 1000) {
-                        console.log('\t\ttransition to next pose!');
-                        currentState = 'waiting';
-                        targetPose = poseNames[poseNames.indexOf(targetPose)+1];
-                        console.log('new pose: ' + targetPose);
-                        yogaSession.setTarget(targetPose);
-                        yogaSession.clickTimer();
-                        yogaSession.generatePrompt();
-                        // display congratulatory message
-                        setTimeout(function() {
-                            this.textCanvas.getContext('2d').clearRect(0, 0, wrapper.textCanvas.width, wrapper.textCanvas.height);
-                            this.textCanvas.getContext('2d').fillText('Great job :)', wrapper.textCanvas.width / 2, wrapper.textCanvas.height / 2);
-                        }, 2000);
-                    } else {
-                        console.log('\tholding pose');
-                    }
-                }
-                if (currentConfidence < 90) {
-                    currentState = 'waiting';
-                    yogaSession.clickTimer();
-                }
+            } else {
+                yogaSession.clickTimer();
+                yogaSession.posing = true;
+                console.log('\tPosing!');
             }
         } else {
-            console.log('CANT DRAW YET');
+            yogaSession.posing = false;
+            yogaSession.clickTimer();
         }
-        last = Date.now();
-        requestAnimationFrame(loop);
+    } else {
+        console.log('No pose detected');
     }
-    requestAnimationFrame(loop);
-
+    console.log(`Elapsed Time: ${dt}`);
 }
+
 
 /**
  * Draws the specified pose on the pose canvas.
@@ -249,25 +177,12 @@ async function displayPose(canvas, pose_name) {
 
 
 /**
- * Runs every frame update. Grab the image from the webcam, run face detection, then crop
- * images for faces and send those images to the model.
- * @param {Object} video    Video object.
- * @param {Number} dt       Time elapsed between frames.
- */
-
-async function processFrame(video, dt) {
-    const start = (new Date()).getTime();
-    // render the video frame to the canvas element and extract RGBA pixel data
-    window.ctx.drawImage(video, 0, 0);
-}
-
-
-/**
  *  Sends an image to the MAX server and receive a prediction in response
  */
 function sendImage(canvas) {
     // get the image from the canvas
     var endpoint = 'http://localhost:5000/model/predict';
+    var coordinates = new Array();
 
     return new Promise(function (resolve, reject) {
         canvas.toBlob(async (blob) => {

@@ -11,6 +11,8 @@
 		<link rel="stylesheet" href="public/css/main.css">
 
 		<script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+		<script src="https://cdn.jsdelivr.net/npm/@codait/max-human-pose-estimator"></script>
 	</head>
 
 	<body background="moz-gradient(180deg, #ffaaae var(--tall), var(--secondary-back) var(--tall))">
@@ -30,12 +32,13 @@
 
 			<hr>
 
-			<div class="row text-center" style="position: relative;">
-				<canvas id="canvas" style="position:absolute;" class="hide" width=640 height=480 style="z-index:0"></canvas>
-				<canvas id="pose-canvas" style="padding:20px;position:relative;left:0;top:0;" class="hide" width=640 height=480 style="z-index:1;background-color:transparent"></canvas>
-				<canvas id="text-canvas" style="position:relative;align-content:center;text-align:center;" class="hide" width=640 height=50></canvas>
-				<canvas id="target-canvas" style="align-content:center;padding:20px;" class="hide" width=640 height=480 style="z-index:2;background-color:transparent"></canvas>
+			<div class="row text-center">
+				<canvas id="canvas" class="hide" width=640 height=480></canvas>
+				<canvas id="pose-canvas" class="hide" width=640 height=480></canvas>
+			</div>
 
+			<div class="row" style="text-align: center;">
+				<span id="prompt" class="hide"></span>
 			</div>
 
 			<div class="row">
