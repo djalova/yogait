@@ -39,6 +39,8 @@ app.post('/svm', function (req, res) {
             const { spawn } = require('child_process');
             const pyProgram = spawn('python3', ['./../predict.py', chunk]);
 
+            console.log(chunk)
+
             pyProgram.stdout.on('data', function (data) {
                 console.log('success!')
                 success(data);

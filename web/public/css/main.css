@@ -18,13 +18,11 @@ body {
     background: -moz-linear-gradient(180deg, var(--primary-back) var(--tall), var(--secondary-back) var(--tall));
     background: linear-gradient(to top, var(--primary-back), var(--secondary-back));
     background-repeat: no-repeat;
-
 }
 
 html {
     height: 100%;
 }
-
 
 hr {
     border: 0;
