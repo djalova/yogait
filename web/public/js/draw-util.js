@@ -44,12 +44,8 @@ function drawLine(canvasCtx, x1, y1, x2, y2, c = 'black', sx = 1, sy = 1) {
  */
 function drawPoseLines(ctx, poseLines, colors, scale = [1, 1]) {
     poseLines.forEach((l, j) => {
-        var data = JSON.stringify(Object.values(l));
-        data = data.replace('[[','');
-        data = data.replace(']]','');
-        var lines = data.split(',');
         let color = `rgb(${colors[j].join()})`
-        drawLine(ctx, ...l, color, scale[0], scale[1])
+        drawLine(ctx, ...l.line, color, scale[0], scale[1])
     })
 }
 
@@ -63,8 +59,8 @@ function drawPoseLines(ctx, poseLines, colors, scale = [1, 1]) {
  */
 function drawBodyParts(ctx, bodyParts, partsToDraw, colors, scale = [1, 1]) {
     bodyParts.forEach(p => {
-        if (!partsToDraw || partsToDraw.includes(p['partName'])) {
-            let color = `rgb(${colors[p['partId']]})`
+        if (bodyParts) {
+            let color = `rgb(${colors[p['part_id']]})`
             drawPoint(ctx, p['x'], p['y'], color, scale[0], scale[1])
         }
     })

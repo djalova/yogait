@@ -13,7 +13,7 @@ with open('./../assets/classes.pkl', 'rb') as fil:
 
 # set up inference data correctly
 preds = json.loads(sys.argv[1].split('\n')[3])
-coordinates = np.array([[d['x'], d['y']] for d in preds], dtype=np.float32)
+coordinates = np.array([[d['x'], d['y']] if d is not None else [0, 0] for d in preds], dtype=np.float32)
 frame = convert(coordinates)
 missing_vals = 19 - frame.shape[0]
 frame = np.concatenate([frame, np.zeros([missing_vals, 2])])
@@ -27,5 +27,5 @@ current_prediction = name_map[prediction[0]]
 score = 100*confidence[0][prediction[0]]
 
 # return result to stdout, where node.js is listening
-response = str(current_prediction)+","+str(score)
-print(response)
+response = {"prediction": current_prediction, "score": score}
+print(json.dumps(response))

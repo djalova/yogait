@@ -36,6 +36,11 @@ footer {
     padding: 10px;
 }
 
+video {
+    -webkit-transform: scaleX(-1);
+    transform: scaleX(-1);
+}
+
 .ibm-code .btn-primary {
     background-color: #26A8A2;
     border-color: #32A8A3;

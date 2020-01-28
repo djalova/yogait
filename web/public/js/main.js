@@ -1,6 +1,6 @@
 import { cocoColors, cocoParts } from './coco-common.js'
 import { motivationalLines } from './motivation-lines.js'
-import {drawBodyParts, drawPoseLines} from './draw-util.js'
+import { drawBodyParts, drawPoseLines } from './draw-util.js'
 const timerLength = 10;
 
 var initialized = false;
@@ -8,6 +8,7 @@ var canvas;
 var yogaSession;
 var poseCanvas;
 var textPrompt;
+let estimationPromise; // We'll recycle this variable to keep track of our promise
 
 const overlaySize = {
     width: 640,
@@ -47,6 +48,9 @@ function start() {
     window.ctx = canvas.getContext('2d', {
         alpha: false
     });
+    // Flip the camera output
+    window.ctx.translate(overlaySize.width, 0);
+    window.ctx.scale(-1, 1);
 
     // this lets us do state transitions
     yogaSession = new YogaWrapper();
@@ -64,7 +68,7 @@ class YogaWrapper {
     constructor() {
         this.startTime = 0;
         this.prompt = null;
-        this.poseNames = ['y','lunge','warrior']
+        this.poseNames = ['y', 'lunge', 'warrior']
         this.currentPose = this.poseNames[0];
         this.posing = false;
         this.confidenceThreshold = 90;
@@ -73,13 +77,13 @@ class YogaWrapper {
 
     generatePrompt() {
         var rand = Math.floor(Math.random() * (motivationalLines.length));
-        String.prototype.format = function() {
+        String.prototype.format = function () {
             var a = this;
             for (var k in arguments) {
-              a = a.replace("{" + k + "}", arguments[k])
+                a = a.replace("{" + k + "}", arguments[k])
             }
             return a
-          }
+        }
         this.prompt = motivationalLines[rand].format(this.currentPose);
     }
 
@@ -92,7 +96,7 @@ class YogaWrapper {
     }
 
     changePose() {
-        this.currentPose = this.poseNames[(this.poseNames.indexOf(this.currentPose)+1) % this.poseNames.length];
+        this.currentPose = this.poseNames[(this.poseNames.indexOf(this.currentPose) + 1) % this.poseNames.length];
         this.clickTimer();
         this.generatePrompt();
         this.posing = false;
@@ -109,52 +113,39 @@ class YogaWrapper {
 async function processFrame(video, dt) {
     // render the video frame to the canvas element and extract RGBA pixel data
     window.ctx.drawImage(video, 0, 0);
-    // let predictionResults = await sendImage(canvas);
-    // let poseEstimation = poseEstimator.predict(canvas);
-    let poseEstimation = estimatePose(canvas)
 
-    // poseEstimation.then((pose) => {
-    //     if (pose['posesDetected'].length > 0) {
-    //         // console.log(pose)
-    //         let resultWidth = pose['imageSize']['width'];
-    //         let resultHeight = pose['imageSize']['height'];
-    //         let scale = [1, 1];
+    // We only want to run the model on the most recent frame as long as another promise is not running
+    if (!estimationPromise || !estimationPromise.isPending()) {
 
-    //         if (resultWidth != overlaySize.width && resultHeight != overlaySize.height) {
-    //             scale = [overlaySize.width / resultWidth, overlaySize.height / resultHeight]
-    //             pose['posesDetected'].forEach(posePrediction => {
-    //                 posePrediction['body_parts'] = posePrediction['bodyParts'];
-    //                 posePrediction['pose_lines'] = posePrediction['poseLines'];
-    //             })
-    //         }
-    //         poseCanvas.getContext('2d').clearRect(0, 0, overlaySize.width, overlaySize.height)
-    //         pose['posesDetected'].forEach((pose_prediction) => {
-    //             drawBodyParts(poseCanvas.getContext('2d'), pose_prediction['body_parts'], cocoParts, cocoColors, scale)
-    //             drawPoseLines(poseCanvas.getContext('2d'), pose_prediction['pose_lines'], cocoColors, scale)
-    //         })
-    //     }  
-    // })
+        // Create promise to classify pose
 
-    poseEstimation.then( (pose) => {
-        
-    })
+        let poseEstimation = estimatePoseJS(canvas)
+        .then((pose) => {
+            if (pose['predictions'].length > 0) {
+                poseCanvas.getContext('2d').clearRect(0, 0, overlaySize.width, overlaySize.height)
+                pose['predictions'].forEach((pose_prediction) => {
+                    drawBodyParts(poseCanvas.getContext('2d'), pose_prediction['body_parts'], cocoParts, cocoColors)
+                    drawPoseLines(poseCanvas.getContext('2d'), pose_prediction['pose_lines'], cocoColors)
+                })
+            }
+            return pose
+        })
+        // .then(res => res.json())
+        // .then(result => {
+        //     console.log(JSON.parse(result).prediction)
+        // })
+        estimationPromise = QuerablePromise(poseEstimation);
+    }
 
     textPrompt.innerHTML = yogaSession.prompt;
 
     if (false) {
-    // if (predictionResults) {
+        // if (predictionResults) {
         console.log(predictionResults)
         let pose = predictionResults[0];
         let currentPrediction = predictionResults[1];
         let currentConfidence = predictionResults[2];
 
-        // draw all poses
-        poseCanvas.getContext('2d').clearRect(0, 0, overlaySize.width, overlaySize.height)
-        pose['predictions'].forEach((pose_prediction) => {
-            drawBodyParts(poseCanvas.getContext('2d'), pose_prediction['body_parts'], cocoParts, cocoColors)
-            drawPoseLines(poseCanvas.getContext('2d'), pose_prediction['pose_lines'], cocoColors)
-        })
-    
         // logic for state transitions
         if (yogaSession.checkPose(currentPrediction, currentConfidence)) {
             if (yogaSession.posing) {
@@ -184,10 +175,47 @@ async function processFrame(video, dt) {
 }
 
 
+/**
+ * Returns a promise containing the coordinates of body parts and pose lines predicted by
+ * the TFJS version of the MAX model
+ * @param {*} canvas    Canvas containing image captured from the webcam
+ */
 function estimatePoseJS(canvas) {
+    let poseEstimation = poseEstimator.predict(canvas)
+    let result = {}
 
+    return poseEstimation.then((pose) => {
+        if (pose['posesDetected'].length > 0) {
+            const resultWidth = pose['imageSize']['width'];
+            const resultHeight = pose['imageSize']['height'];
+            // TFJS model rescales image to 432px so we need to rescale to original
+            let scale = [overlaySize.width / resultWidth, overlaySize.height / resultHeight]
+
+            pose['posesDetected'].forEach(posePrediction => {
+                posePrediction['body_parts'] = posePrediction['bodyParts'].map(part => {
+                    let scaledPart = { part_name: part.partName, part_id: part.partId, x: part.x * scale[0], y: part.y * scale[1], score: part.score }
+                    return scaledPart;
+                })
+                posePrediction['pose_lines'] = posePrediction['poseLines'].map(lines => {
+                    let scaledLines = {line: [lines[0] * scale[0], lines[1] * scale[1], lines[2] * scale[0], lines[3] * scale[1]]}
+                    return scaledLines
+                })
+                delete posePrediction['bodyParts'];
+                delete posePrediction['poseLines'];
+            })
+        }
+        // TFJS model returns extra info we don't need
+        result["predictions"] = pose["posesDetected"];
+        return result;
+    })
 }
 
+
+/**
+ * Returns a promise containing the coordinates of body parts and pose lines predicted by
+ * the Python version of the MAX model
+ * @param {*} canvas    Canvas containing image captured from the webcam
+ */
 function estimatePose(canvas) {
     const promiseBlob = () => {
         return new Promise((resolve, reject) => {
@@ -195,7 +223,7 @@ function estimatePose(canvas) {
         });
     };
 
-    var endpoint = 'http://localhost:5000/model/predict';
+    const endpoint = 'http://localhost:5000/model/predict';
 
     return promiseBlob().then((blob) => {
         const formData = new FormData();
@@ -216,58 +244,41 @@ function estimatePose(canvas) {
 
 
 /**
- *  Sends an image to the MAX server and receive a prediction in response
+ * Sends a request to run the SVM to classify a given pose
+ * @param {*} pose      Object containing the user's pose information
  */
-function sendImage(canvas) {
-    // get the image from the canvas
-    var endpoint = 'http://localhost:5000/model/predict';
-    var coordinates = new Array();
-    var poseEstimation;
-
-    const promiseBlob = () => {
-        return new Promise((resolve, reject) => {
-            canvas.toBlob(resolve, 'image/jpg', 1.0);
-        });
-    };
-
-    return promiseBlob().then((blob) => {
+function classifyPose(pose) {
+    console.log(pose)
+    if (pose['predictions'].length > 0) {
+        let coordinates = pose['predictions'][0]['body_parts']
         const formData = new FormData();
-        formData.append('file', blob);
-        formData.append('type', 'image/jpeg');
-        return fetch(endpoint,
-            {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'Accept': 'application/json'
-                }
+        formData.append('file', JSON.stringify(coordinates));
+        formData.append('type', 'application/json');
+        return fetch('/svm', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Accept': 'application/json'
             }
-        )
-    })
-    .then((posePred) => posePred.json())
-    .then(json => {
-        if (json['predictions'].length > 0) {
-            coordinates = json['predictions'][0]['body_parts']
-            const formData = new FormData();
-            formData.append('file', JSON.stringify(coordinates));
-            formData.append('type', 'application/json');
-            return fetch('/svm', {
-                            method: 'POST',
-                            body: formData,
-                            headers: {
-                                'Accept': 'application/json'
-                            }
-                        });
-        } else {
-            throw new Error('No pose detected');
-        }
-    })
-    .then(res => res.text())
-    .then(result => {
-        let values = result.split(',');
-        let pose = values[0];
-        let confidence = values[1];
-        return [posePred, pose, parseFloat(confidence)]
-    })
-    .catch(error => console.error(error.message));
+        });
+    } else {
+        throw new Error('No pose detected');
+    }
+}
+
+
+/**
+ * Wrapper for a Promise that adds functionality to check
+ * current status of a promise.
+ */
+function QuerablePromise(promise) {
+
+    var isPending = true;
+    var result = promise.then(
+        () => { isPending = false }
+    ).catch(
+        () => { isPending = false }
+    )
+    result.isPending = function () { return isPending }
+    return result;
 }
