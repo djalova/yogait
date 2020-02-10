@@ -1,13 +1,12 @@
 import { cocoColors, cocoParts } from './coco-common.js'
-import { motivationalLines } from './motivation-lines.js'
-import { drawBodyParts, drawPoseLines } from './draw-util.js'
-const timerLength = 10;
+import { drawBodyParts, drawPoseLines } from './drawUtils.js'
+import { Yogait } from './yogait.js';
+import { PhotoMode } from './photoMode.js';
 
-var initialized = false;
 var canvas;
-var yogaSession;
 var poseCanvas;
-var textPrompt;
+var yogaSession;
+var photoSession;
 let estimationPromise; // We'll recycle this variable to keep track of our promise
 
 const overlaySize = {
@@ -15,92 +14,69 @@ const overlaySize = {
     height: 480
 }
 
+const MODES = {
+    YOGAIT: 'yogait',
+    PHOTO: 'photo'
+}
+
+// Set default mode
+var mode = MODES.PHOTO;
+var prevMode = "";
+
 setup();
 
 // Run setup. Attaches a function to a button
 async function setup() {
-    let button = document.getElementById("webcamButton");
-    button.addEventListener("click", start)
+    yogaSession = new Yogait();
+    photoSession = new PhotoMode();
+
+    let button = document.getElementById("startButton");
+    button.addEventListener("click", start);
+
+    let yogaitButton = document.getElementById("yogaitModeButton");    
+    yogaitButton.addEventListener("click", () => {mode = MODES.YOGAIT});
+
+    let photoButton = document.getElementById("photoModeButton");
+    photoButton.addEventListener("click", () => {mode = MODES.PHOTO});
+
 }
 
 /**
  *  Loads the face detector model and creates canvas to display webcam and model results.
  */
 function start() {
-    if (initialized) {
+    if (window.initialized) {
         console.log('initialized');
         return;
     }
 
     // this canvas is where we send the video stream to
     canvas = document.getElementById("canvas");
-    canvas.classList.toggle("hide");
+    canvas.classList.remove("hide");
 
     poseCanvas = document.getElementById("pose-canvas");
-    poseCanvas.classList.toggle("hide");
+    poseCanvas.classList.remove("hide");
 
-    textPrompt = document.getElementById("prompt");
-    textPrompt.classList.toggle("hide")
+    let button = document.getElementById("startButton");
+    button.parentNode.removeChild(button)
 
-    let button = document.getElementById("webcamButton");
-    button.classList.add("hide");
+    let yogaitButton = document.getElementById("yogaitModeButton");    
+    yogaitButton.classList.remove("hide");
+
+    let photoButton = document.getElementById("photoModeButton");
+    photoButton.classList.remove("hide");
 
     window.ctx = canvas.getContext('2d', {
         alpha: false
     });
+
     // Flip the camera output
     window.ctx.translate(overlaySize.width, 0);
     window.ctx.scale(-1, 1);
 
     // this lets us do state transitions
-    yogaSession = new YogaWrapper();
-
     var mycamvas = new camvas(window.ctx, processFrame);
-    initialized = true;
-}
-
-
-/**
- * Contains the state transition logic and timing information.
- */
-class YogaWrapper {
-
-    constructor() {
-        this.startTime = 0;
-        this.prompt = null;
-        this.poseNames = ['y', 'lunge', 'warrior']
-        this.currentPose = this.poseNames[0];
-        this.posing = false;
-        this.confidenceThreshold = 90;
-        this.generatePrompt()
-    }
-
-    generatePrompt() {
-        var rand = Math.floor(Math.random() * (motivationalLines.length));
-        String.prototype.format = function () {
-            var a = this;
-            for (var k in arguments) {
-                a = a.replace("{" + k + "}", arguments[k])
-            }
-            return a
-        }
-        this.prompt = motivationalLines[rand].format(this.currentPose);
-    }
-
-    clickTimer() {
-        this.startTime = Date.now();
-    }
-
-    checkPose(posePrediction, poseConfidence) {
-        return posePrediction === this.currentPose && poseConfidence > this.confidenceThreshold
-    }
-
-    changePose() {
-        this.currentPose = this.poseNames[(this.poseNames.indexOf(this.currentPose) + 1) % this.poseNames.length];
-        this.clickTimer();
-        this.generatePrompt();
-        this.posing = false;
-    }
+    window.initialized = true;
 }
 
 
@@ -114,64 +90,41 @@ async function processFrame(video, dt) {
     // render the video frame to the canvas element and extract RGBA pixel data
     window.ctx.drawImage(video, 0, 0);
 
-    // We only want to run the model on the most recent frame as long as another promise is not running
-    if (!estimationPromise || !estimationPromise.isPending()) {
-
-        // Create promise to classify pose
-
-        let poseEstimation = estimatePoseJS(canvas)
-        .then((pose) => {
-            if (pose['predictions'].length > 0) {
-                poseCanvas.getContext('2d').clearRect(0, 0, overlaySize.width, overlaySize.height)
-                pose['predictions'].forEach((pose_prediction) => {
-                    drawBodyParts(poseCanvas.getContext('2d'), pose_prediction['body_parts'], cocoParts, cocoColors)
-                    drawPoseLines(poseCanvas.getContext('2d'), pose_prediction['pose_lines'], cocoColors)
+    switch (mode) {
+        // Run game logic
+        case MODES.YOGAIT:
+        // We only want to run the model on the most recent frame as long as another promise is not running
+            if (!estimationPromise || !estimationPromise.isPending()) {
+                // Create promise to classify pose
+                let poseEstimation = estimatePoseJS(canvas)
+                .then((pose) => {
+                    if (pose['predictions'].length > 0) {
+                        poseCanvas.getContext('2d').clearRect(0, 0, overlaySize.width, overlaySize.height)
+                        pose['predictions'].forEach((pose_prediction) => {
+                            drawBodyParts(poseCanvas.getContext('2d'), pose_prediction['body_parts'], cocoParts, cocoColors)
+                            drawPoseLines(poseCanvas.getContext('2d'), pose_prediction['pose_lines'], cocoColors)
+                        })
+                    }
+                    return pose
                 })
+                .then(pose => console.log(pose.predictions))
+                estimationPromise = QuerablePromise(poseEstimation);
             }
-            return pose
-        })
-        // .then(res => res.json())
-        // .then(result => {
-        //     console.log(JSON.parse(result).prediction)
-        // })
-        estimationPromise = QuerablePromise(poseEstimation);
-    }
+            document.getElementById("prompt").innerHTML = yogaSession.prompt;
+            prevMode = MODES.YOGAIT;
 
-    textPrompt.innerHTML = yogaSession.prompt;
-
-    if (false) {
-        // if (predictionResults) {
-        console.log(predictionResults)
-        let pose = predictionResults[0];
-        let currentPrediction = predictionResults[1];
-        let currentConfidence = predictionResults[2];
-
-        // logic for state transitions
-        if (yogaSession.checkPose(currentPrediction, currentConfidence)) {
-            if (yogaSession.posing) {
-                let poseTime = Date.now() - yogaSession.startTime
-                textPrompt.innerHTML.concat(`: ${poseTime * 1000} seconds`)
-                if (poseTime > timerLength * 1000) {
-                    yogaSession.changePose()
-                    // display congratulatory message
-                    // setTimeout(function() {
-                    //     this.textCanvas.getContext('2d').clearRect(0, 0, wrapper.textCanvas.width, wrapper.textCanvas.height);
-                    //     this.textCanvas.getContext('2d').fillText('Great job :)', wrapper.textCanvas.width / 2, wrapper.textCanvas.height / 2);
-                    // }, 2000);                
-                }
-            } else {
-                yogaSession.clickTimer();
-                yogaSession.posing = true;
-                console.log('\tPosing!');
+        case MODES.PHOTO:
+            // If button clicked start timer and take photo
+            if (prevMode != MODES.PHOTO) {
+                let photoButton = document.getElementById("photoButton");
+                photoButton.classList.remove("hide");
             }
-        } else {
-            yogaSession.posing = false;
-            yogaSession.clickTimer();
-        }
-    } else {
-        // console.log('No pose detected');
+
+            // Display button to confirm photo or retake photo
+            prevMode = MODES.PHOTO
+
     }
-    console.log(`Elapsed Time: ${dt}`);
+    // console.log(`Elapsed Time: ${dt}`);
 }
 
 
@@ -254,7 +207,7 @@ function classifyPose(pose) {
         const formData = new FormData();
         formData.append('file', JSON.stringify(coordinates));
         formData.append('type', 'application/json');
-        return fetch('/svm', {
+        return fetch('/svm/predict', {
             method: 'POST',
             body: formData,
             headers: {

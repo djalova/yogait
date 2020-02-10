@@ -10,7 +10,6 @@
 		<link rel="stylesheet" href="public/css/lib/bootstrap.min.css">
 		<link rel="stylesheet" href="public/css/main.css">
 
-		<script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
 		<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 		<script src="https://cdn.jsdelivr.net/npm/@codait/max-human-pose-estimator"></script>
 	</head>
@@ -38,11 +37,16 @@
 			</div>
 
 			<div class="row" style="text-align: center;">
-				<span id="prompt" class="hide"></span>
+				<span id="prompt"></span>
 			</div>
 
-			<div class="row">
-				<button class="btn btn-primary btn-large btn-block" id="webcamButton"> Begin </button>
+			<button type="button" class="btn btn-primary btn-large btn-block" id="startButton"> Begin </button>
+			<div class="btn-group" id="main-btn-group">
+				<button type="button" class="btn btn-primary btn-large hide" id="yogaitModeButton">Play</button>
+				<button type="button" class="btn btn-success btn-large hide" id="photoModeButton"">Add Pose</button>
+			</div>
+			<div class="btn-group" id="photoMode">
+				<button type="button" class="btn btn-danger btn-large hide" id="photoButton">Take Photo</button>
 			</div>
 			
 		</div>

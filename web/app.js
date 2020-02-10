@@ -30,10 +30,10 @@ app.get('/', (req, res) => {
         console.log(__dirname + req.url);
     }
     res.end(fs.readFileSync(__dirname + req.url));
-
 });
 
-app.post('/svm', function (req, res) {
+
+app.post('/svm/predict', function (req, res) {
     req.on('data', function (chunk) {
         let runPy = new Promise(function (success, nosuccess) {
             const { spawn } = require('child_process');
@@ -59,6 +59,32 @@ app.post('/svm', function (req, res) {
     });
 })
 
+
+app.post('/svm/train', function (req, res) {
+    req.on('close', function () {
+        let runPy = new Promise(function (sucess, error) {
+            const { spawn } = require('child_process');
+            const pyProgram = spawn('python3', ['./../utils/train.py', chunk]);
+        })
+    })
+})
+
+
+app.post('/pose/:name', function (req, res) {
+    let dir = `../assets/images/${req.params.name}`;
+    fs.mkdirSync(dir, { recursive: true })
+    fs.readdir(dir, (err, files) => {
+        let fileCount = files.length;
+        let file = fs.createWriteStream(`${dir}/${fileCount}.jpg`);
+
+        req.on('data', function (chunk) {
+            file.write(chunk)
+        })
+        req.on('end', function () {
+            file.end();
+        })
+    })
+});
 
 app.listen(port, function () {
     console.log("Site running on localhost:3000")
